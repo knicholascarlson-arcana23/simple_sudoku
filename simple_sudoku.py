@@ -18,6 +18,7 @@ current_puzzle_string = ""
 for r in range(9):
     for c in range(9):
         val = str(st.session_state.get(f"cell_{r}_{c}", "")).strip()
+        # Only export solid answers (length 1, no periods)
         if len(val) == 1 and val.isdigit():
             current_puzzle_string += val
         else:
@@ -87,6 +88,7 @@ if not st.session_state.locked:
                 for r in range(9):
                     for c in range(9):
                         val = str(st.session_state.get(f"cell_{r}_{c}", "")).strip()
+                        # Only lock solid answers
                         if val and val.isdigit() and len(val) == 1:
                             st.session_state.original_puzzle[f"{r}_{c}"] = True
                 st.rerun()
@@ -101,7 +103,7 @@ else:
         st.session_state.original_puzzle = {}
         st.rerun()
 
-st.write("**Instructions:** Type a single digit for your answer. Type multiple digits for pencil notes.")
+st.write("**Instructions:** Type a single digit for your answer. Type multiple digits (e.g. `145`) OR add a period (e.g. `5.`) for pencil notes.")
 
 # 4. Build the grid
 column_widths = [1, 1, 1, 0.3, 1, 1, 1, 0.3, 1, 1, 1]
@@ -127,9 +129,8 @@ for r in range(9):
                 key=f"cell_{r}_{logical_c}"   
             )
 
-# 5. UPDATED ERROR CHECKING LOGIC
+# 5. ERROR CHECKING LOGIC (Updated for Decimal Notes)
 if error_check_on:
-    # Safely load all grid values and strip out spaces
     logical_grid = [[str(st.session_state.get(f"cell_{r}_{c}", "")).strip().replace(" ", "") for c in range(9)] for r in range(9)]
     errors = []
     
@@ -139,24 +140,33 @@ if error_check_on:
             
             if not raw_val: 
                 continue
+            
+            # Identify if it is a pencil note (longer than 1 char, OR contains a period)
+            is_note = len(raw_val) > 1 or "." in raw_val
+            
+            # Clean the string to check if the remaining characters are valid numbers
+            check_val = raw_val.replace(".", "")
+            
+            if not check_val: 
+                continue
                 
-            if not raw_val.isdigit() or '0' in raw_val:
-                errors.append(f"Oops! Invalid character in Row {row+1}, Column {col+1}. Only numbers 1-9 are allowed.")
+            if not check_val.isdigit() or '0' in check_val:
+                errors.append(f"Oops! Invalid character in Row {row+1}, Column {col+1}. Only numbers 1-9 and periods (.) are allowed.")
                 continue
             
-            # Gather all single digits currently locked into this row, column, and 3x3 box (excluding the current box)
-            row_singles = [logical_grid[row][i] for i in range(9) if i != col and len(logical_grid[row][i]) == 1]
-            col_singles = [logical_grid[i][col] for i in range(9) if i != row and len(logical_grid[i][col]) == 1]
+            # Gather all SOLID answers (length exactly 1, no periods) to check against
+            row_singles = [logical_grid[row][i] for i in range(9) if i != col and len(logical_grid[row][i]) == 1 and "." not in logical_grid[row][i]]
+            col_singles = [logical_grid[i][col] for i in range(9) if i != row and len(logical_grid[i][col]) == 1 and "." not in logical_grid[i][col]]
             
             box_r, box_c = (row // 3) * 3, (col // 3) * 3
             box_singles = []
             for br in range(box_r, box_r + 3):
                 for bc in range(box_c, box_c + 3):
-                    if (br != row or bc != col) and len(logical_grid[br][bc]) == 1:
+                    if (br != row or bc != col) and len(logical_grid[br][bc]) == 1 and "." not in logical_grid[br][bc]:
                         box_singles.append(logical_grid[br][bc])
             
-            # Check 1: If you typed a solid answer (single digit), does it clash with another solid answer?
-            if len(raw_val) == 1:
+            # If it is a SOLID answer, check if it clashes with other solid answers
+            if not is_note:
                 if raw_val in row_singles:
                     errors.append(f"Row {row+1} has multiple {raw_val}s.")
                 if raw_val in col_singles:
@@ -164,19 +174,17 @@ if error_check_on:
                 if raw_val in box_singles:
                     errors.append(f"The 3x3 block containing Row {row+1}, Col {col+1} has multiple {raw_val}s.")
                     
-            # Check 2: If you typed notes (multiple digits), do any of them clash with a solid answer?
-            elif len(raw_val) > 1:
-                for digit in raw_val:
+            # If it is a NOTE, check if any of its numbers clash with a solid answer
+            if is_note:
+                for digit in check_val:
                     if digit in row_singles:
-                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already placed in Row {row+1}.")
+                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already locked in Row {row+1}.")
                     if digit in col_singles:
-                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already placed in Column {col+1}.")
+                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already locked in Column {col+1}.")
                     if digit in box_singles:
-                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already placed in this 3x3 block.")
+                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already locked in this 3x3 block.")
     
-    # Remove duplicate error messages and display them
     unique_errors = list(set(errors))
-    # Sort them so they display in a somewhat readable order
     unique_errors.sort()
     for error in unique_errors:
         st.error(error)
