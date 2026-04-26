@@ -13,7 +13,7 @@ if "initialized" not in st.session_state:
     st.session_state.confirming = False
     st.session_state.original_puzzle = {}
 
-# --- NEW FEATURE: GENERATE 81-DIGIT STRING ---
+# Generate 81-digit string for export
 current_puzzle_string = ""
 for r in range(9):
     for c in range(9):
@@ -37,7 +37,6 @@ with col2:
         st.session_state.original_puzzle = {}
         st.rerun()
 
-# --- NEW FEATURE: SAVE / LOAD UI ---
 with st.expander("💾 Save / Load Puzzle Options"):
     st.write("**Export Current Board:**")
     st.code(current_puzzle_string)
@@ -48,7 +47,6 @@ with st.expander("💾 Save / Load Puzzle Options"):
         file_name="my_sudoku_puzzle.txt",
         mime="text/plain"
     )
-    
     st.divider()
     
     st.write("**Import a Board:**")
@@ -129,36 +127,56 @@ for r in range(9):
                 key=f"cell_{r}_{logical_c}"   
             )
 
-# 5. Error Checking Logic
+# 5. UPDATED ERROR CHECKING LOGIC
 if error_check_on:
-    logical_grid = [[str(st.session_state.get(f"cell_{r}_{c}", "")) for c in range(9)] for r in range(9)]
+    # Safely load all grid values and strip out spaces
+    logical_grid = [[str(st.session_state.get(f"cell_{r}_{c}", "")).strip().replace(" ", "") for c in range(9)] for r in range(9)]
     errors = []
     
     for row in range(9):
         for col in range(9):
-            raw_val = logical_grid[row][col].strip().replace(" ", "")
+            raw_val = logical_grid[row][col]
             
-            if not raw_val or len(raw_val) > 1: 
+            if not raw_val: 
                 continue
                 
-            if not raw_val.isdigit() or raw_val == '0':
-                errors.append(f"Oops! '{raw_val}' in Row {row+1} is not a valid number.")
+            if not raw_val.isdigit() or '0' in raw_val:
+                errors.append(f"Oops! Invalid character in Row {row+1}, Column {col+1}. Only numbers 1-9 are allowed.")
                 continue
             
-            clean_row = [logical_grid[row][c].strip().replace(" ", "") for c in range(9)]
-            if clean_row.count(raw_val) > 1:
-                errors.append(f"Row {row+1} has too many {raw_val}s.")
+            # Gather all single digits currently locked into this row, column, and 3x3 box (excluding the current box)
+            row_singles = [logical_grid[row][i] for i in range(9) if i != col and len(logical_grid[row][i]) == 1]
+            col_singles = [logical_grid[i][col] for i in range(9) if i != row and len(logical_grid[i][col]) == 1]
             
-            clean_col = [logical_grid[r][col].strip().replace(" ", "") for r in range(9)]
-            if clean_col.count(raw_val) > 1:
-                errors.append(f"Column {col+1} has too many {raw_val}s.")
-                
-            box_row_start = (row // 3) * 3
-            box_col_start = (col // 3) * 3
-            clean_box = [logical_grid[r][c].strip().replace(" ", "") for r in range(box_row_start, box_row_start+3) for c in range(box_col_start, box_col_start+3)]
-            if clean_box.count(raw_val) > 1:
-                errors.append(f"The 3x3 block containing Row {row+1}, Col {col+1} has too many {raw_val}s.")
+            box_r, box_c = (row // 3) * 3, (col // 3) * 3
+            box_singles = []
+            for br in range(box_r, box_r + 3):
+                for bc in range(box_c, box_c + 3):
+                    if (br != row or bc != col) and len(logical_grid[br][bc]) == 1:
+                        box_singles.append(logical_grid[br][bc])
+            
+            # Check 1: If you typed a solid answer (single digit), does it clash with another solid answer?
+            if len(raw_val) == 1:
+                if raw_val in row_singles:
+                    errors.append(f"Row {row+1} has multiple {raw_val}s.")
+                if raw_val in col_singles:
+                    errors.append(f"Column {col+1} has multiple {raw_val}s.")
+                if raw_val in box_singles:
+                    errors.append(f"The 3x3 block containing Row {row+1}, Col {col+1} has multiple {raw_val}s.")
+                    
+            # Check 2: If you typed notes (multiple digits), do any of them clash with a solid answer?
+            elif len(raw_val) > 1:
+                for digit in raw_val:
+                    if digit in row_singles:
+                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already placed in Row {row+1}.")
+                    if digit in col_singles:
+                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already placed in Column {col+1}.")
+                    if digit in box_singles:
+                        errors.append(f"Note in Row {row+1}, Col {col+1} contains a '{digit}', but '{digit}' is already placed in this 3x3 block.")
     
+    # Remove duplicate error messages and display them
     unique_errors = list(set(errors))
+    # Sort them so they display in a somewhat readable order
+    unique_errors.sort()
     for error in unique_errors:
         st.error(error)
